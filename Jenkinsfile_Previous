@@ -12,6 +12,9 @@ def readProperties(){
     env.CODE_COVERAGE = property.CODE_COVERAGE
     env.FUNCTIONAL_TESTING = property.FUNCTIONAL_TESTING
     env.LOAD_TESTING = property.LOAD_TESTING
+    env.TESTING = property.TESTING
+    env.QA = property.QA
+    env.PT = property.PT
 }
 
 def devDeployment(projectName,msName){
@@ -23,13 +26,13 @@ def devDeployment(projectName,msName){
 }
 
 
-def testDeployment(sourceProjectName,destinationProjectName,msName){
+def testDeployment(sourceProjectName,destinationProjectName,msName,tagName){
     openshift.withCluster() {
         openshift.withProject(destinationProjectName){
 	          def dcSelector = openshift.selector( "dc", msName)
             def dcExists = dcSelector.exists()
 	          if(!dcExists){
-	    	      openshift.newApp(sourceProjectName+"/"+msName+":"+"test")   
+	    	      openshift.newApp(sourceProjectName+"/"+msName+":"+tagName)   
 	          }
             else {
                 openshiftDeploy(namespace: destinationProjectName,deploymentConfig: msName) 
@@ -44,7 +47,7 @@ def prodDeployment(sourceProjectName,destinationProjectName,msName){
 	          def dcSelector = openshift.selector( "dc", msName)
             def dcExists = dcSelector.exists()
 	          if(!dcExists){
-	    	        openshift.newApp(sourceProjectName+"/"+msName+":"+"prod")   
+	    	        openshift.newApp(sourceProjectName+"/"+msName+":"+"PRE")   
 	          }
             else {
                 openshiftDeploy(namespace: destinationProjectName,deploymentConfig: msName)
@@ -143,38 +146,77 @@ node{
    stage('Tagging Image for Testing'){
         openshiftTag(namespace: '$APP_NAME-dev', srcStream: '$MS_NAME', srcTag: 'latest', destStream: '$MS_NAME', destTag: 'test')
    }
-   
-   stage('Test - Deploy Application'){
-        testDeployment("${APP_NAME}-dev", "${APP_NAME}-test", "${MS_NAME}")
-   }
+   if(env.TESTING=='True')
+   {
+         stage('Test - Deploy Application'){
+              testDeployment("${APP_NAME}-dev", "${APP_NAME}-test", "${MS_NAME}","test")
+         }
 
-   if(env.FUNCTIONAL_TESTING == 'True'){
-        node ('jenkins-pipeline'){
-            container ('chrome'){
-                stage("Functional Testing"){
-                    sh 'cd "${WORKSPACE}"'
-                    sh '$(npm bin)/ng e2e -- --protractor-config=e2e/protractor.conf.js'
-                }
-            }
-        }
+         if(env.FUNCTIONAL_TESTING == 'True'){
+              node ('jenkins-pipeline'){
+                  container ('chrome'){
+                      stage("Functional Testing"){
+                          sh 'cd "${WORKSPACE}"'
+                          sh '$(npm bin)/ng e2e -- --protractor-config=e2e/protractor.conf.js'
+                      }
+                  }
+              }
+         }
    }
    
-   if(env.LOAD_TESTING == 'True'){
-        stage("Load Testing"){
-            sh 'artillery run -o load.json perfTest.yml' 
-        }
-   }
+   if(env.QA=='True')
+   {
+         stage('QA - Deploy Application'){
+              testDeployment("${APP_NAME}-dev", "${APP_NAME}-qa", "${MS_NAME}","test")
+         }
 
-   stage('Tagging Image for Production'){
-        openshiftTag(namespace: '$APP_NAME-dev', srcStream: '$MS_NAME', srcTag: 'latest', destStream: '$MS_NAME', destTag: 'prod')
+         if(env.FUNCTIONAL_TESTING == 'True'){
+              node ('jenkins-pipeline'){
+                  container ('chrome'){
+                      stage("Functional Testing"){
+                          sh 'cd "${WORKSPACE}"'
+                          sh '$(npm bin)/ng e2e -- --protractor-config=e2e/protractor.conf.js'
+                      }
+                  }
+              }
+         }
+   }
+   
+   stage('Tagging Image for PT'){
+        openshiftTag(namespace: '$APP_NAME-dev', srcStream: '$MS_NAME', srcTag: 'test', destStream: '$MS_NAME', destTag: 'PT')
+   }
+   
+   if(env.PT=="True")
+   {
+         stage('PT - Deploy Application'){
+              testDeployment("${APP_NAME}-dev", "${APP_NAME}-pt", "${MS_NAME}","PT")
+         }
+         if(env.LOAD_TESTING == 'True'){
+              stage("Load Testing"){
+                  sh 'artillery run -o load.json perfTest.yml' 
+              }
+         }
+   }
+   
+   stage('Tagging Image for UAT'){
+        openshiftTag(namespace: '$APP_NAME-dev', srcStream: '$MS_NAME', srcTag: 'PT', destStream: '$MS_NAME', destTag: 'UAT')
+   }
+   
+   stage('UAT - Deploy Application'){
+              testDeployment("${APP_NAME}-dev", "${APP_NAME}-pt", "${MS_NAME}","UAT")
+         }
+    
+    
+   stage('Tagging Image for Pre-prod'){
+        openshiftTag(namespace: '$APP_NAME-dev', srcStream: '$MS_NAME', srcTag: 'UAT', destStream: '$MS_NAME', destTag: 'PRE')
    }	
     
    stage('Deploy to Production approval'){
         input "Deploy to Production Environment?"
    }
 	
-   stage('Prod - Deploy Application'){
-        prodDeployment("${APP_NAME}-dev", "${APP_NAME}-prod", "${MS_NAME}")
+   stage('Pre-Prod - Deploy Application'){
+        prodDeployment("${APP_NAME}-dev", "${APP_NAME}-preprod", "${MS_NAME}")
    }	
   
 }
