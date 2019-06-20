@@ -221,7 +221,10 @@ def deployApp(projectName,msName){
         prodDeployment("${APP_NAME}-dev", "${APP_NAME}-preprod", "${MS_NAME}")
    }
    }
-   
+   catch(e){
+		echo "Pipeline has failed"
+		emailext body: "${env.BUILD_URL} has result ${currentBuild.result}", subject: "Status of pipeline: ${currentBuild.fullDisplayName}", to: '${mailrecipent}'
+	}
   
 }
 }
